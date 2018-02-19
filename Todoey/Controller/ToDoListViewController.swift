@@ -7,18 +7,21 @@
 //
 
 import UIKit
+import RealmSwift
 
-class ToDoListViewController: UITableViewController{
+class ToDoListViewController: UITableViewController {
+    var itemArray: Results<Item>? //change to a new collection type...a collection of result
+
+    let realm = try! Realm() //initialize a new access point to our Realm database
     
-    var itemArray = [Item]()
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    var selectedCategory : Category? {
+        didSet {
+            loadItems()
+        }
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        print(dataFilePath)
-        
-        loadItems()
         
     }
     
@@ -27,7 +30,7 @@ class ToDoListViewController: UITableViewController{
     //TODO: Set the numberOfRowsInSection, which is the number of rows in the table view
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return itemArray.count
+        return itemArray?.count ?? 1
     }
     
     //TODO: 1. Set the text to be displayed for each cell within the table view
@@ -38,14 +41,15 @@ class ToDoListViewController: UITableViewController{
         
         let cell = tableView.dequeueReusableCell(withIdentifier: "ToDoItemCell", for: indexPath)
         
-        let item = itemArray[indexPath.row]
-        
-        cell.textLabel?.text = item.title
-    
-        // ==> Use of ternary operator
-        // format is....value = condition ? valueIfTrue : valueIfFalse
-        cell.accessoryType = item.done == true ? .checkmark : .none
-        //
+        if let item = itemArray?[indexPath.row] {
+            cell.textLabel?.text = item.title
+            
+            // ==> Use of ternary operator
+            // format is....value = condition ? valueIfTrue : valueIfFalse
+            cell.accessoryType = item.done == true ? .checkmark : .none
+        } else {
+            cell.textLabel?.text = "No Item Added"
+        }
         
         return cell
     }
@@ -59,11 +63,19 @@ class ToDoListViewController: UITableViewController{
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         
-        itemArray[indexPath.row].done = !itemArray[indexPath.row].done
+        if let item = itemArray?[indexPath.row]{
+            do {
+                try realm.write {
+                    item.done = !item.done
+                    }
+                } catch {
+                    print("Error saving items, \(error)")
+                }
+            }
         
-        saveItems()
-
+        tableView.reloadData()
         tableView.deselectRow(at: indexPath, animated: true)
+
     }
     
     //TODO: Add functionality for when the Add button is pressed in the top right corner
@@ -77,13 +89,20 @@ class ToDoListViewController: UITableViewController{
         let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
             //what will happen once the user clicks the Add Item button on the UI alert
             
-            let newItem = Item()
-            newItem.title = textField.text!
+            if let currentCategory = self.selectedCategory {
+                do {
+                    try self.realm.write{
+                        let newItem = Item()
+                        newItem.title = textField.text!
+                        newItem.dateCreated = Date()
+                        currentCategory.items.append(newItem)
+                    }
+                } catch {
+                    print("Error saving new item, \(error)")
+                }
+            }
             
-            self.itemArray.append(newItem)
-            
-            self.saveItems()
-            
+            self.tableView.reloadData()
         }
         
         alert.addTextField { (alertTextField) in
@@ -97,36 +116,47 @@ class ToDoListViewController: UITableViewController{
         
     }
     
-    func saveItems() {
-        let encoder = PropertyListEncoder()
+    func save(item: Item) {
         do {
-            let data = try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+            try realm.write {
+                realm.add(item)
+            }
+        } catch {
+            print("Error saving item \(error)")
         }
-        catch {
-            print("Error encoding array, \(error)")
-        }
-        
         tableView.reloadData()
     }
     
     func loadItems() {
         
-        if let data = try? Data(contentsOf: dataFilePath!) {
-            let decoder = PropertyListDecoder()
-            do {
-                itemArray = try decoder.decode([Item].self, from: data)
-            } catch {
-                print("Errow decoding item array \(error)")
+        itemArray = selectedCategory?.items.sorted(byKeyPath: "title", ascending: true)
+        
+        tableView.reloadData()
+    
+   }
+    
+} // closing of ToDoListViewController
+
+
+//MARK: - Search Bar Protocol Methods
+extension ToDoListViewController: UISearchBarDelegate {
+//
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        itemArray = itemArray?.filter( "title CONTAINS[cd] %@", searchBar.text!).sorted(byKeyPath: "dateCreated", ascending: true)
+        tableView.reloadData()
+    }
+
+
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        if searchBar.text?.count == 0 {
+            loadItems()
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
             }
         }
-    
     }
-    
-    
-    
-    
+
 }
-    
+
 
 
